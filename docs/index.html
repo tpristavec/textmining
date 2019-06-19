@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+  <head>
+    <title>Text Mining in R</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Teja Pristavec" />
+    <meta name="date" content="2019-06-19" />
+    <link href="libs/remark-css-0.0.1/default.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/metropolis.css" rel="stylesheet" />
+    <link href="libs/remark-css-0.0.1/metropolis-fonts.css" rel="stylesheet" />
+    <link href="libs/countdown-0.3.3/countdown.css" rel="stylesheet" />
+    <script src="libs/countdown-0.3.3/countdown.js"></script>
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# Text Mining in R
+### Teja Pristavec
+### UVA BII Social &amp; Decision Analytics Division
+### 2019-06-19
+
+---
+
+class: 
+
+
+
+
+
+# Let's get some text data
+
+Follow along! Quick ways to get some text:
+* Various books via [gutenbergr](https://cran.r-project.org/web/packages/gutenbergr/vignettes/intro.html)
+* Song lyrics via [genius](https://github.com/josiahparry/genius)
+* H.C. Andersen’s fairy tales via [hcandersenr](https://github.com/EmilHvitfeldt/hcandersenr)
+* Proust via [proustr](https://colinfay.me/proustr-package/)
+* Zen koans via [koanr](https://github.com/malcolmbarrett/koanr)
+* Harry Potter via [harrypotter](https://github.com/bradleyboehmke/harrypotter)
+
+<div class="countdown" id="timer_5d0a3c6d" style="right:0;bottom:0;" data-audio="true" data-warnwhen="0">
+<code class="countdown-time"><span class="countdown-digits minutes">05</span><span class="countdown-digits colon">:</span><span class="countdown-digits seconds">00</span></code>
+</div>
+
+---
+class: 
+
+# Let's get some text data
+
+I'll be working with Kafka's Metamorphosis. 
+&lt;br&gt;
+
+
+```r
+library(dplyr)
+library(gutenbergr)
+
+# gutenberg_metadata %&gt;% filter(title == 'Metamorphosis')
+metamorphosis &lt;- gutenberg_download(5200)
+```
+--
+
+```r
+metamorphosis$gutenberg_id &lt;- NULL
+tail(metamorphosis, 8)
+```
+
+```
+## # A tibble: 8 x 1
+##   text                                                               
+##   &lt;chr&gt;                                                              
+## 1 while they were talking,  Mr. and  Mrs. Samsa were struck, almost  
+## 2 simultaneously, with the thought of how their daughter was         
+## 3 blossoming into a well built and beautiful young lady.  They became
+## 4 quieter.  Just from each other's glance and almost without knowing 
+## 5 it they agreed that it would soon be time to find a good man for   
+## 6 her.  And, as if in confirmation of their new dreams and good      
+## 7 intentions, as soon as they reached their destination Grete was the
+## 8 first to get up and stretch out her young body.
+```
+
+---
+class: center, middle, inverse
+
+# First, some clean-up
+
+---
+# Tokenization
+
+**Tokenization** parses the text into elements (or tokens) of interest. In this case, we want words as units of analysis.
+
+
+```r
+library(tidytext)
+metwords &lt;- metamorphosis %&gt;% unnest_tokens(word, text)
+```
+--
+
+```r
+tail(metwords, 10)
+```
+
+```
+## # A tibble: 10 x 1
+##    word   
+##    &lt;chr&gt;  
+##  1 first  
+##  2 to     
+##  3 get    
+##  4 up     
+##  5 and    
+##  6 stretch
+##  7 out    
+##  8 her    
+##  9 young  
+## 10 body
+```
+
+---
+# Removing stopwords
+**Stopwords** are commonly used words (like _if_, _when_, _the_, _after_) that we typically (but not always!) want to ignore.
+
+```r
+data(stop_words)
+metwords &lt;- metwords %&gt;% anti_join(stop_words, by = "word")
+```
+--
+
+```r
+tail(metwords, 10)
+```
+
+```
+## # A tibble: 10 x 1
+##    word        
+##    &lt;chr&gt;       
+##  1 agreed      
+##  2 time        
+##  3 confirmation
+##  4 dreams      
+##  5 intentions  
+##  6 reached     
+##  7 destination 
+##  8 grete       
+##  9 stretch     
+## 10 body
+```
+---
+
+class: center, middle, inverse
+
+# Word frequencies
+
+---
+# Most frequent words
+
+
+```r
+library(ggplot2, verbose = FALSE)
+
+metwords %&gt;% count(word, sort = TRUE)
+```
+
+```
+## # A tibble: 2,153 x 2
+##    word         n
+##    &lt;chr&gt;    &lt;int&gt;
+##  1 gregor     199
+##  2 gregor's    99
+##  3 father      96
+##  4 sister      96
+##  5 door        87
+##  6 mother      82
+##  7 time        59
+##  8 head        38
+##  9 chief       37
+## 10 clerk       34
+## # … with 2,143 more rows
+```
+
+---
+# Most frequent words
+
+.pull-left[
+
+```r
+library(ggplot2)
+
+metwords %&gt;%
+  count(word, sort = TRUE) %&gt;%
+  filter(n &gt; 30) %&gt;%
+  mutate(word = reorder(word, n)) %&gt;%
+  ggplot(aes(word, n)) +
+     geom_col() +
+     coord_flip() +
+     labs(title = 
+       "Most frequent words (n &gt; 30)", 
+       x = "Word", y = "Frequency (n)")
+```
+]
+--
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot1-out-1.png" width="504" /&gt;
+]
+
+---
+
+class: center, middle, inverse
+
+# Sentiments
+
+---
+# Sentiments
+
+Tidytext comes with four sentiment lexicons: nrc, bing, afinn, loughran. Except for afinn, the lexicons have positive and negative sentiment categories. NRC also has anger, anticipation, disgust, joy, sadness, surprise, and trust; loughran also has "litigious", "uncertainty", "constraining", and "superfluous."
+
+
+```r
+bing &lt;- get_sentiments("bing")
+bing$sentiment &lt;- as.factor(bing$sentiment)
+
+metsent &lt;- metwords %&gt;%
+  inner_join(bing, by = "word") %&gt;%
+  count(word, sentiment, sort = TRUE)  %&gt;%
+  ungroup()
+```
+
+---
+# Sentiments
+
+.pull-left[
+
+```r
+library(wesanderson)
+
+metsent %&gt;%
+ filter(n &gt; 3) %&gt;%
+ mutate(word = reorder(word, n)) %&gt;%
+ ggplot(aes(word, n, fill = sentiment)) +
+  geom_col() +
+  coord_flip() + 
+  facet_wrap(~ sentiment,
+             scales = "free_y") +
+  labs(title = 
+   "Word frequency by sentiment (n &gt; 3)",
+    x = "Frequency", fill = "Sentiment") +
+  scale_fill_manual(values = 
+    wes_palette(n = 2, 
+                name = "Moonrise3", 
+                type = "discrete")) + 
+  theme(legend.position = "bottom")
+```
+]
+--
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot2-out-1.png" width="504" /&gt;
+]
+
+---
+class: center
+# Sentiment over time
+
+
+
+
+```r
+library(cowplot); plot_grid(plotbing, plotnrc, ncol = 1, align = "v", axis = "l")
+```
+
+&lt;img src="textmining_xar_files/figure-html/unnamed-chunk-11-1.png" width="504" /&gt;
+
+
+```r
+plot_grid(plotbing, plotnrc, ncol = 1, align = "v", axis = "l")
+```
+
+&lt;img src="textmining_xar_files/figure-html/unnamed-chunk-12-1.png" width="504" /&gt;
+
+---
+
+class: center, middle, inverse
+
+# Word clouds
+
+WARNING! We don't like word clouds. See [this note](http://drewconway.com/zia/2013/3/26/building-a-better-word-cloud) about building wordclouds 2.0.
+
+---
+# Word clouds
+
+.pull-left[
+
+```r
+library(wordcloud)
+
+metwords %&gt;%
+  count(word) %&gt;%
+  with(wordcloud(word, n, max.words = 100, 
+                 random.order = FALSE))
+```
+]
+
+--
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot3-out-1.png" width="504" /&gt;
+]
+
+---
+# Word clouds
+
+.pull-left[
+
+```r
+library(reshape2)
+
+metsent %&gt;%
+  acast(word ~ sentiment, value.var = "n", 
+        fill = 0) %&gt;%
+  comparison.cloud(colors = c("darkblue", "brown"),
+                   max.words = 100)
+```
+]
+
+--
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot4-out-1.png" width="504" /&gt;
+]
+
+---
+
+class: center, middle, inverse
+
+# N-grams
+
+---
+# N-grams
+
+.pull-left[
+
+```r
+# Bi-grams
+metbi &lt;- metwords %&gt;%
+ unnest_tokens(bigram, word, token = "ngrams", n = 2)
+metbi %&gt;% count(bigram, sort = TRUE)
+```
+
+```
+## # A tibble: 5,899 x 2
+##    bigram              n
+##    &lt;chr&gt;           &lt;int&gt;
+##  1 chief clerk        34
+##  2 gregor's father    24
+##  3 gregor's mother    21
+##  4 gregor's sister    17
+##  5 mother sister      12
+##  6 chest drawers       9
+##  7 father mother       8
+##  8 door gregor         6
+##  9 gregor door         6
+## 10 door living         4
+## # … with 5,889 more rows
+```
+]
+
+.pull-right[
+
+```r
+# Tri-grams
+mettri &lt;- metwords %&gt;%
+ unnest_tokens(trigram, word, token = "ngrams", n = 3)
+mettri %&gt;% count(trigram, sort = TRUE)
+```
+
+```
+## # A tibble: 6,242 x 2
+##    trigram                         n
+##    &lt;chr&gt;                       &lt;int&gt;
+##  1 gregor's mother sister          6
+##  2 chief clerk gregor              3
+##  3 chest drawers desk              2
+##  4 chief clerk father              2
+##  5 chief clerk left                2
+##  6 door entrance hall              2
+##  7 earn money gregor               2
+##  8 entertaining violin playing     2
+##  9 front door flat                 2
+## 10 gentlemen rented evening        2
+## # … with 6,232 more rows
+```
+]
+
+---
+
+class: center, middle, inverse
+
+# Word networks
+
+---
+# Word networks
+
+.pull-left[
+
+```r
+library(igraph); library(ggraph); library(widyr)
+
+bigrams_separated &lt;- metbi %&gt;%
+  separate(bigram, c("word1", "word2"), sep = " ")
+bigram_counts &lt;- bigrams_separated %&gt;% 
+  count(word1, word2, sort = TRUE) %&gt;%
+  filter(!is.na(word1) &amp; !is.na(word2))
+bigram_graph &lt;- bigram_counts %&gt;%
+  filter(n &gt; 2) %&gt;%
+  graph_from_data_frame()
+
+bigram_plot &lt;- grid::arrow(type = "closed", 
+                     length = unit(.1, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+ geom_edge_link(aes(edge_alpha = n), 
+                show.legend = FALSE,
+                arrow = bigram_plot, 
+                end_cap = circle(.07, "inches")) +
+ geom_node_point(color = "burlywood3", size = 3) +
+ geom_node_text(aes(label = name), vjust = 1, 
+                hjust = 1, repel = TRUE) +
+ labs(title = "Metamorphosis bigrams") +
+ theme_void()
+```
+]
+
+--
+
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot5-out-1.png" width="504" /&gt;
+]
+
+---
+
+class: center, middle, inverse
+
+# Word correlations
+
+---
+# Word correlations
+.pull-left[
+
+```r
+# Create "units"
+metwords &lt;- metwords %&gt;% mutate(section = row_number() %/% 50) %&gt;%
+                         filter(section &gt; 0)
+
+# Co-occuring words
+metpairs &lt;- metwords %&gt;%
+  pairwise_count(word, section, sort = TRUE)
+metpairs
+```
+
+```
+## # A tibble: 203,272 x 3
+##    item1    item2        n
+##    &lt;chr&gt;    &lt;chr&gt;    &lt;dbl&gt;
+##  1 door     gregor      49
+##  2 gregor   door        49
+##  3 gregor's gregor      48
+##  4 gregor   gregor's    48
+##  5 father   gregor      47
+##  6 sister   gregor      47
+##  7 gregor   father      47
+##  8 gregor   sister      47
+##  9 mother   gregor      43
+## 10 gregor   mother      43
+## # … with 203,262 more rows
+```
+]
+
+--
+
+.pull-right[
+
+```r
+# Correlations
+# Phi: H0 it is equally likely for either word to appear alone as it is that both of them or neither of them appear
+
+metcors &lt;- metwords %&gt;%
+           group_by(word) %&gt;%
+           filter(n() &gt;= 20) %&gt;%
+           pairwise_cor(word, section, sort = TRUE)
+metcors
+```
+
+```
+## # A tibble: 650 x 3
+##    item1    item2    correlation
+##    &lt;chr&gt;    &lt;chr&gt;          &lt;dbl&gt;
+##  1 clerk    chief          1.000
+##  2 chief    clerk          1.000
+##  3 mother   gregor's       0.431
+##  4 gregor's mother         0.431
+##  5 sister   mother         0.425
+##  6 mother   sister         0.425
+##  7 father   gregor's       0.410
+##  8 gregor's father         0.410
+##  9 father   mother         0.395
+## 10 mother   father         0.395
+## # … with 640 more rows
+```
+]
+
+---
+# Word correlations
+
+.pull-left[
+
+```r
+# Words associated with...
+metcors %&gt;%
+  filter(item1 %in% c("clerk", "door")) %&gt;%
+  group_by(item1) %&gt;%
+  top_n(5) %&gt;%
+  ungroup() %&gt;%
+  mutate(item2 = reorder(item2, correlation)) %&gt;%
+  ggplot(aes(item2, correlation)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ item1, scales = "free") +
+  coord_flip()
+```
+]
+
+--
+
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot6-out-1.png" width="504" /&gt;
+]
+
+---
+# Correlation graph
+
+.pull-left[
+
+```r
+metcors %&gt;%
+  filter(correlation &gt; .15) %&gt;%
+  graph_from_data_frame() %&gt;%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_void()
+```
+]
+
+--
+
+.pull-right[
+&lt;img src="textmining_xar_files/figure-html/plot7-out-1.png" width="504" /&gt;
+]
+
+---
+class: center, middle, inverse
+
+# Phew :)
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"ratio": "16:9",
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();</script>
+
+<script>
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>

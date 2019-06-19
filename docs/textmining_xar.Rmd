@@ -1,0 +1,441 @@
+---
+title: "Text Mining in R"
+author: "Teja Pristavec"
+institute: "UVA BII Social & Decision Analytics Division"
+date: "`r Sys.Date()`"
+output:
+  xaringan::moon_reader:
+    css: ["default", "metropolis", "metropolis-fonts"]
+    lib_dir: libs
+    nature:
+      ratio: 16:9
+      highlightStyle: github
+      highlightLines: true
+      countIncrementalSlides: false
+
+---
+class: 
+
+```{r, include = FALSE}
+library(countdown)
+```
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.retina = 3, warning = FALSE, message = FALSE)
+```
+
+# Let's get some text data
+
+Follow along! Quick ways to get some text:
+* Various books via [gutenbergr](https://cran.r-project.org/web/packages/gutenbergr/vignettes/intro.html)
+* Song lyrics via [genius](https://github.com/josiahparry/genius)
+* H.C. Andersen’s fairy tales via [hcandersenr](https://github.com/EmilHvitfeldt/hcandersenr)
+* Proust via [proustr](https://colinfay.me/proustr-package/)
+* Zen koans via [koanr](https://github.com/malcolmbarrett/koanr)
+* Harry Potter via [harrypotter](https://github.com/bradleyboehmke/harrypotter)
+
+`r countdown(minutes = 5, seconds = 00, play_sound = TRUE, box_shadow = FALSE, color_background = "#FAFAFA")`
+
+---
+class: 
+
+# Let's get some text data
+
+I'll be working with Kafka's Metamorphosis. 
+<br>
+
+```{r eval = TRUE, tidy = TRUE}
+library(dplyr)
+library(gutenbergr)
+
+# gutenberg_metadata %>% filter(title == "Metamorphosis")
+metamorphosis <- gutenberg_download(5200)
+```
+--
+```{r eval = TRUE, tidy = TRUE}
+metamorphosis$gutenberg_id <- NULL
+tail(metamorphosis, 8)
+```
+
+---
+class: center, middle, inverse
+
+# First, some clean-up
+
+---
+# Tokenization
+
+**Tokenization** parses the text into elements (or tokens) of interest. In this case, we want words as units of analysis.
+
+```{r, tidy = TRUE}
+library(tidytext)
+metwords <- metamorphosis %>% unnest_tokens(word, text)
+```
+--
+```{r, tidy = TRUE}
+tail(metwords, 10)
+```
+
+---
+# Removing stopwords
+**Stopwords** are commonly used words (like _if_, _when_, _the_, _after_) that we typically (but not always!) want to ignore.
+```{r}
+data(stop_words)
+metwords <- metwords %>% anti_join(stop_words, by = "word")
+```
+--
+```{r, tidy = TRUE}
+tail(metwords, 10)
+```
+---
+
+class: center, middle, inverse
+
+# Word frequencies
+
+---
+# Most frequent words
+
+```{r, tidy = TRUE}
+library(ggplot2, verbose = FALSE)
+
+metwords %>% count(word, sort = TRUE) 
+
+```
+
+---
+# Most frequent words
+
+.pull-left[
+```{r plot1, eval = FALSE}
+library(ggplot2)
+
+metwords %>%
+  count(word, sort = TRUE) %>%
+  filter(n > 30) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n)) +
+     geom_col() +
+     coord_flip() +
+     labs(title = 
+       "Most frequent words (n > 30)", 
+       x = "Word", y = "Frequency (n)")
+```
+]
+--
+.pull-right[
+```{r plot1-out, ref.label = "plot1", echo = FALSE}
+```
+]
+
+---
+
+class: center, middle, inverse
+
+# Sentiments
+
+---
+# Sentiments
+
+Tidytext comes with four sentiment lexicons: nrc, bing, afinn, loughran. Except for afinn, the lexicons have positive and negative sentiment categories. NRC also has anger, anticipation, disgust, joy, sadness, surprise, and trust; loughran also has "litigious", "uncertainty", "constraining", and "superfluous."
+
+```{r}
+bing <- get_sentiments("bing")
+bing$sentiment <- as.factor(bing$sentiment)
+
+metsent <- metwords %>%
+  inner_join(bing, by = "word") %>%
+  count(word, sentiment, sort = TRUE)  %>%
+  ungroup()
+```
+
+---
+# Sentiments
+
+.pull-left[
+```{r plot2, eval = FALSE}
+library(wesanderson)
+
+metsent %>%
+ filter(n > 3) %>%
+ mutate(word = reorder(word, n)) %>%
+ ggplot(aes(word, n, fill = sentiment)) +
+  geom_col() +
+  coord_flip() + 
+  facet_wrap(~ sentiment,
+             scales = "free_y") +
+  labs(title = 
+   "Word frequency by sentiment (n > 3)",
+    x = "Frequency", fill = "Sentiment") +
+  scale_fill_manual(values = 
+    wes_palette(n = 2, 
+                name = "Moonrise3", 
+                type = "discrete")) + 
+  theme(legend.position = "bottom")
+```
+]
+--
+.pull-right[
+```{r plot2-out, ref.label = "plot2", echo = FALSE}
+```
+]
+
+---
+class: center
+# Sentiment over time
+
+```{r,  include = FALSE}
+library(tidyr)
+cols <- c("#7FC97F", "#BEAED4", "#BEAED4")
+
+# Bing
+mettime_bing <- metwords %>%
+  mutate(rowpos = row_number(), method = "Bing") %>%
+  inner_join(bing, by = "word") %>%
+  count(word, index = rowpos %/% 100, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative,
+          sentcolor = ifelse(sentiment > 0, "positive",
+                       ifelse(sentiment < 0, "negative",
+                        ifelse(sentiment == 0, "neutral", NA))))
+
+plotbing <- ggplot(mettime_bing, aes(index, sentiment, fill = sentcolor)) +
+                  geom_col(show.legend = FALSE) +
+                  scale_fill_manual(values = cols) +
+                  labs(title = "Sentiment score per 100 words over time", x = "", y = "Bing")
+
+# Nrc
+mettime_nrc <- metwords %>%
+  mutate(rowpos = row_number(), method = "NRC") %>%
+  inner_join(filter(get_sentiments("nrc"), sentiment == "positive" | sentiment == "negative"), by = "word") %>%
+  count(word, index = rowpos %/% 100, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative,
+         sentcolor = ifelse(sentiment > 0, "positive",
+                      ifelse(sentiment < 0, "negative",
+                       ifelse(sentiment == 0, "neutral", NA))))
+
+plotnrc <- ggplot(mettime_nrc, aes(index, sentiment, fill = sentcolor)) +
+                  geom_col(show.legend = FALSE) +
+                  scale_fill_manual(values = cols)  +
+                  labs(x = "Word group", y = "NRC")
+```
+
+```{r}
+library(cowplot); plot_grid(plotbing, plotnrc, ncol = 1, align = "v", axis = "l")
+```
+
+```{r}
+plot_grid(plotbing, plotnrc, ncol = 1, align = "v", axis = "l")
+```
+
+---
+
+class: center, middle, inverse
+
+# Word clouds
+
+WARNING! We don't like word clouds. See [this note](http://drewconway.com/zia/2013/3/26/building-a-better-word-cloud) about building wordclouds 2.0.
+
+---
+# Word clouds
+
+.pull-left[
+```{r plot3, eval = FALSE}
+library(wordcloud)
+
+metwords %>%
+  count(word) %>%
+  with(wordcloud(word, n, max.words = 100, 
+                 random.order = FALSE))
+```
+]
+
+--
+.pull-right[
+```{r plot3-out, ref.label = "plot3", echo = FALSE}
+```
+]
+
+---
+# Word clouds
+
+.pull-left[
+```{r plot4, eval = FALSE}
+library(reshape2)
+
+metsent %>%
+  acast(word ~ sentiment, value.var = "n", 
+        fill = 0) %>%
+  comparison.cloud(colors = c("darkblue", "brown"),
+                   max.words = 100)
+```
+]
+
+--
+.pull-right[
+```{r plot4-out, ref.label = "plot4", echo = FALSE}
+```
+]
+
+---
+
+class: center, middle, inverse
+
+# N-grams
+
+---
+# N-grams
+
+.pull-left[
+```{r}
+# Bi-grams
+metbi <- metwords %>%
+ unnest_tokens(bigram, word, token = "ngrams", n = 2)
+metbi %>% count(bigram, sort = TRUE)
+```
+]
+
+.pull-right[
+```{r}
+# Tri-grams
+mettri <- metwords %>%
+ unnest_tokens(trigram, word, token = "ngrams", n = 3)
+mettri %>% count(trigram, sort = TRUE)
+```
+]
+
+---
+
+class: center, middle, inverse
+
+# Word networks
+
+---
+# Word networks
+
+.pull-left[
+```{r plot5, eval = FALSE}
+library(igraph); library(ggraph); library(widyr)
+
+bigrams_separated <- metbi %>%
+  separate(bigram, c("word1", "word2"), sep = " ")
+bigram_counts <- bigrams_separated %>% 
+  count(word1, word2, sort = TRUE) %>%
+  filter(!is.na(word1) & !is.na(word2))
+bigram_graph <- bigram_counts %>%
+  filter(n > 2) %>%
+  graph_from_data_frame()
+
+bigram_plot <- grid::arrow(type = "closed", 
+                     length = unit(.1, "inches"))
+
+ggraph(bigram_graph, layout = "fr") +
+ geom_edge_link(aes(edge_alpha = n), 
+                show.legend = FALSE,
+                arrow = bigram_plot, 
+                end_cap = circle(.07, "inches")) +
+ geom_node_point(color = "burlywood3", size = 3) +
+ geom_node_text(aes(label = name), vjust = 1, 
+                hjust = 1, repel = TRUE) +
+ labs(title = "Metamorphosis bigrams") +
+ theme_void()
+```
+]
+
+--
+
+.pull-right[
+```{r plot5-out, ref.label = "plot5", echo = FALSE}
+```
+]
+
+---
+
+class: center, middle, inverse
+
+# Word correlations
+
+---
+# Word correlations
+.pull-left[
+```{r}
+# Create "units"
+metwords <- metwords %>% mutate(section = row_number() %/% 50) %>%
+                         filter(section > 0)
+
+# Co-occuring words
+metpairs <- metwords %>%
+  pairwise_count(word, section, sort = TRUE)
+metpairs
+```
+]
+
+--
+
+.pull-right[
+```{r}
+# Correlations
+# Phi: H0 it is equally likely for either word to appear alone as it is that both of them or neither of them appear
+
+metcors <- metwords %>%
+           group_by(word) %>%
+           filter(n() >= 20) %>%
+           pairwise_cor(word, section, sort = TRUE)
+metcors
+```
+]
+
+---
+# Word correlations
+
+.pull-left[
+```{r plot6, eval = FALSE}
+# Words associated with...
+metcors %>%
+  filter(item1 %in% c("clerk", "door")) %>%
+  group_by(item1) %>%
+  top_n(5) %>%
+  ungroup() %>%
+  mutate(item2 = reorder(item2, correlation)) %>%
+  ggplot(aes(item2, correlation)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~ item1, scales = "free") +
+  coord_flip()
+```
+]
+
+--
+
+.pull-right[
+```{r plot6-out, ref.label = "plot6", echo = FALSE}
+```
+]
+
+---
+# Correlation graph
+
+.pull-left[
+```{r plot7, eval = FALSE}
+metcors %>%
+  filter(correlation > .15) %>%
+  graph_from_data_frame() %>%
+  ggraph(layout = "fr") +
+  geom_edge_link(aes(edge_alpha = correlation), show.legend = FALSE) +
+  geom_node_point(color = "lightblue", size = 5) +
+  geom_node_text(aes(label = name), repel = TRUE) +
+  theme_void()
+```
+]
+
+--
+
+.pull-right[
+```{r plot7-out, ref.label = "plot7", echo = FALSE}
+```
+]
+
+---
+class: center, middle, inverse
+
+# Phew :)
